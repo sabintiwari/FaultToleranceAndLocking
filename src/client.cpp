@@ -5,6 +5,7 @@
 */
 
 /* Include header files. */
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cstring>
 #include <ctime>
@@ -13,6 +14,7 @@
 #include <iostream>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <string>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -71,7 +73,7 @@ std::vector<std::string> split(const std::string &s, char delim) {
 bool is_currency(string value)
 {
     char *d;
-    strtod(value, &d, 10);
+    strtod(value.c_str(), &d);
     if(*d) return false;
     vector<string> tokens = split(value, '.');
     if(tokens.size() != 2 || tokens[1].length() != 2) return false;
@@ -82,14 +84,14 @@ bool is_currency(string value)
 bool is_int(string value)
 {
     char *d;
-    strtol(value, &d, 10);
+    strtol(value.c_str(), &d, 10);
     return *d == 0;
 }
 
 /* Establishes a connection to the server. */
-bool connect(socket_data sckt)
+bool connect(socket_data data)
 {
-    if(connect(sckt.fd, (struct sockaddr *)&sckt.address), sizeof(sckt.address)) < 0)
+    if(connect(data.fd, (struct sockaddr *)&(data.address), sizeof(data.address)) < 0)
     {
         cerr << "Failed to connect to the server.\n";
         return false;
@@ -98,28 +100,28 @@ bool connect(socket_data sckt)
 }
 
 /* Performs one cycle of send and receive with the server. */
-void send(socket_data sckt, string message)
+void send(socket_data data, string message)
 {
     /* Connect to the server. */
-    if(connect(sckt))
+    if(connect(data))
     {
         /* Send a message to the server to perform the transaction. */
         char buffer[MAXDATASIZE];
-        int status = write(sckt.fd, message.c_str(), message.size());
-        if(w < 0)
+        int status = write(data.fd, message.c_str(), message.size());
+        if(status < 0)
         {
             cerr << "Failed to send message to server.\n";
-            close(sckt.fd);
+            close(data.fd);
             return;
         }
 
         /* Wait for the response to be received from the server. */
         memset(&buffer[0], 0, MAXDATASIZE);
-        status = read(sckt.fd, &buffer, MAXDATASIZE);
+        status = read(data.fd, &buffer, MAXDATASIZE);
         if(status < 0)
         {
             cerr << "Failed to receive message from server.\n";
-            close(sckt.fd);
+            close(data.fd);
             return;
         }
 
@@ -128,37 +130,37 @@ void send(socket_data sckt, string message)
     }
 
     /* Close the connection. */
-    close(sckt.fd);
+    close(data.fd);
 }
 
 /* Handles the create functionality. */
-void create(socket_data sckt, vector<string> tokens)
+void create(socket_data data, vector<string> tokens)
 {
     /* Validate inputs for the create. */
     if(tokens.size() < 2 || !is_currency(tokens[1])) 
-        cerr << "Use create with a money input: CREATE <initial_amount>\n"
+        cerr << "Use create with a money input: CREATE <initial_amount>\n";
     else 
-        send(sckt, "CREATE:" + tokens[1]);
+        send(data, "CREATE:" + tokens[1]);
 }
 
 /* Handles the update functionality. */
-void update(socket_data sckt, vector<string> tokens)
+void update(socket_data data, vector<string> tokens)
 {
     /* Validate inputs for the update. */
     if(tokens.size() < 3 || !is_int(tokens[1]) || !is_currency(tokens[2])) 
-        cerr << "Use update with account and money input: UPDATE <acct_id> <value>\n"
+        cerr << "Use update with account and money input: UPDATE <acct_id> <value>\n";
     else
-        send(sckt, "UPDATE:" + tokens[1] + ":" + tokens[2]);
+        send(data, "UPDATE:" + tokens[1] + ":" + tokens[2]);
 }
 
 /* Handles the query functionality. */
-void query(socket_data sckt, vector<string> tokens)
+void query(socket_data data, vector<string> tokens)
 {
     /* Validate inputs for the query. */
-    if(tokens.size() < 2 || !isint(tokens[1])
-        cerr << "Use query with account: QUERY <acct_id>\n"
+    if(tokens.size() < 2 || !is_int(tokens[1]))
+        cerr << "Use query with account: QUERY <acct_id>\n";
     else
-        send(sckt, "QUERY:" + tokens[1]);
+        send(data, "QUERY:" + tokens[1]);
 }
 
 /*  Main method that handles the client program logic. */
@@ -167,33 +169,33 @@ int main(int argc, char **argv)
     if(argc < 3)
     {
         /* Show error if the correct number of argumnets were not passed. */
-        cerr << "Usage: client <server_address> <port>\n"
+        cerr << "Usage: client <server_address> <port>\n";
         exit(1);
     }
 
     /* Declare the socket data. */
-	socket_data sckt;
-    sckt.host = argv[1];
-    sckt.port = atoi(argv[2]);
+	socket_data data;
+    data.host = argv[1];
+    data.port = atoi(argv[2]);
 
     /* Setup the connection information to the front-end server. */
     struct hostent *server;
-    server = gethostbyname(sckt.host);
-    if(server = NULL)
+    server = gethostbyname(data.host.c_str());
+    if(server == NULL)
     {
         /* Show error if the server does not exist. */
-        cerr << "No host exists with the address: " << sckt.host << "\n";
+        cerr << "No host exists with the address: " << scdatakt.host << "\n";
         exit(1);
     }
 
     /* Get the address tot the front-end server. */
-    sckt.address.sin_family = AF_INET;
-    bcopy((char *)server->h_addr, (char *)&sckt.address.sin_addr.s_addr, server->h_length);
-    sckt.address.sin_port = htons(sckt.port);
+    data.address.sin_family = AF_INET;
+    bcopy((char *)server->h_addr, (char *)&data.address.sin_addr.s_addr, server->h_length);
+    data.address.sin_port = htons(data.port);
 
     /* Setup the socket. */
-    sckt.fd = socket(AF_INET, SOCK_STREAM, 0);
-    if(sckt.fd < 0) 
+    data.fd = socket(AF_INET, SOCK_STREAM, 0);
+    if(data.fd < 0) 
     {
         /* Show error if the socket creation fails. */
         cerr << "Socket is not formed.\n";
@@ -209,35 +211,30 @@ int main(int argc, char **argv)
     /* Loop that handles the UI. */
     while (!end)
     {
-        cout "> ";
-        cin >> input;
+        cout << "> ";
+        getline(cin, input);
 
         /* Tokenize the received input. */
+        std::transform(input.begin(), input.end(), input.begin(), ::toupper);
         tokens = split(input, ' ');
         if(tokens.size() == 0) continue;
-        transform(input.begin(), input.end(), input.begin(), ::toupper);
 
         /* Check the query and perform the respective function. */
-        switch(tokens[0])
+        if(tokens[0] == "CREATE")
+            create(data, tokens);
+        else if(tokens[0] == "UPDATE")
+            update(data, tokens);
+        else if(tokens[0] == "QUERY")
+            query(data, tokens);
+        else if(tokens[0] == "QUIT")
+            end = true;
+        else 
         {
-            case "CREATE":
-                create(sckt, tokens);
-                break;
-            case "UPDATE":
-                update(sckt, tokens);
-                break;
-            case "QUERY":
-                query(sckt, tokens);
-                break;
-            case "QUIT":
-                cout << "Exiting program.";
-                end = true;
-            default:
-                cout << "Error! Invalid query entered.\n";
-                cout << "Valid options are: CREATE, UPDATE, QUERY, or QUIT.\n"
-                break;
+            cout << "Error! Invalid query entered.\n";
+            cout << "Valid options are: CREATE, UPDATE, QUERY, or QUIT.\n";
         }
     }
 
+    cout << "Exiting program.";
     return 0;
 }
