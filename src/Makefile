@@ -2,7 +2,7 @@
 #	CMSC 621
 #	Project 3
 
-compile:  comm client directories
+compile: comm client directories
 
 server:
 	g++ -o server server.cpp

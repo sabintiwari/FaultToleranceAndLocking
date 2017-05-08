@@ -94,12 +94,12 @@ void *client_request(void *args)
         /* Split the token from the client and perform the transaction. */
         vector<string> tokens = split(buffer_str, ':');
         /* Check the query and perform the respective function. */
-        if(tokens[0] == "CREATE")
-            create(data, tokens);
-        else if(tokens[0] == "UPDATE")
-            update(data, tokens);
-        else if(tokens[0] == "QUERY")
-            query(data, tokens);
+        // if(tokens[0] == "CREATE")
+        //     create(data, tokens);
+        // else if(tokens[0] == "UPDATE")
+        //     update(data, tokens);
+        // else if(tokens[0] == "QUERY")
+        //     query(data, tokens);
 
         /* Send the response to the client. */
         s = write(data.sfd, buffer_str.c_str(), buffer_str.length());
@@ -116,7 +116,7 @@ void *client_request(void *args)
 }
 
 /* Main function login for the communicator program. */
-int main(int argc, char * argv[])
+int main(int argc, char **argv)
 {
     if(argc < 2)
     {

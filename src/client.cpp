@@ -128,9 +128,6 @@ void send(socket_data data, string message)
         /* Show the message from the server. */
         cout << buffer << "\n";
     }
-
-    /* Close the connection. */
-    close(data.fd);
 }
 
 /* Handles the create functionality. */
@@ -184,7 +181,7 @@ int main(int argc, char **argv)
     if(server == NULL)
     {
         /* Show error if the server does not exist. */
-        cerr << "No host exists with the address: " << scdatakt.host << "\n";
+        cerr << "No host exists with the address: " << data.host << "\n";
         exit(1);
     }
 
@@ -235,6 +232,8 @@ int main(int argc, char **argv)
         }
     }
 
+    /* Close the connection before exiting. */
     cout << "Exiting program.";
+    close(data.fd);
     return 0;
 }
