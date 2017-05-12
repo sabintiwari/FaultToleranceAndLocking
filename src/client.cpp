@@ -88,53 +88,38 @@ bool is_int(string value)
     return *d == 0;
 }
 
-/* Establishes a connection to the server. */
-bool connect(socket_data data)
-{
-    if(connect(data.fd, (struct sockaddr *)&(data.address), sizeof(data.address)) < 0)
-    {
-        cerr << "Failed to connect to the server.\n";
-        return false;
-    }
-    return true;
-}
-
 /* Performs one cycle of send and receive with the server. */
 void send(socket_data data, string message)
 {
-    /* Connect to the server. */
-    if(connect(data))
+    /* Send a message to the server to perform the transaction. */
+    char buffer[MAXDATASIZE];
+    int status = write(data.fd, message.c_str(), message.size());
+    if(status < 0)
     {
-        /* Send a message to the server to perform the transaction. */
-        char buffer[MAXDATASIZE];
-        int status = write(data.fd, message.c_str(), message.size());
-        if(status < 0)
-        {
-            cerr << "Failed to send message to server.\n";
-            close(data.fd);
-            return;
-        }
-
-        /* Wait for the response to be received from the server. */
-        memset(&buffer[0], 0, MAXDATASIZE);
-        status = read(data.fd, &buffer, MAXDATASIZE);
-        if(status < 0)
-        {
-            cerr << "Failed to receive message from server.\n";
-            close(data.fd);
-            return;
-        }
-
-        /* Show the message from the server. */
-        cout << buffer << "\n";
+        cerr << "Failed to send message to server.\n";
+        close(data.fd);
+        return;
     }
+
+    /* Wait for the response to be received from the server. */
+    memset(&buffer[0], 0, MAXDATASIZE);
+    status = read(data.fd, &buffer, MAXDATASIZE);
+    if(status < 0)
+    {
+        cerr << "Failed to receive message from server.\n";
+        close(data.fd);
+        return;
+    }
+
+    /* Show the message from the server. */
+    cout << buffer << "\n";
 }
 
 /* Handles the create functionality. */
 void create(socket_data data, vector<string> tokens)
 {
     /* Validate inputs for the create. */
-    if(tokens.size() < 2 || !is_currency(tokens[1])) 
+    if(tokens.size() != 2 || !is_currency(tokens[1])) 
         cerr << "Use create with a money input: CREATE <initial_amount>\n";
     else 
         send(data, "CREATE:" + tokens[1]);
@@ -144,7 +129,7 @@ void create(socket_data data, vector<string> tokens)
 void update(socket_data data, vector<string> tokens)
 {
     /* Validate inputs for the update. */
-    if(tokens.size() < 3 || !is_int(tokens[1]) || !is_currency(tokens[2])) 
+    if(tokens.size() != 3 || !is_int(tokens[1]) || !is_currency(tokens[2])) 
         cerr << "Use update with account and money input: UPDATE <acct_id> <value>\n";
     else
         send(data, "UPDATE:" + tokens[1] + ":" + tokens[2]);
@@ -154,10 +139,16 @@ void update(socket_data data, vector<string> tokens)
 void query(socket_data data, vector<string> tokens)
 {
     /* Validate inputs for the query. */
-    if(tokens.size() < 2 || !is_int(tokens[1]))
+    if(tokens.size() != 2 || !is_int(tokens[1]))
         cerr << "Use query with account: QUERY <acct_id>\n";
     else
         send(data, "QUERY:" + tokens[1]);
+}
+
+/* Handles the quit method. */
+void quit(socket_data data)
+{
+    send(data, "QUIT");
 }
 
 /*  Main method that handles the client program logic. */
@@ -199,6 +190,12 @@ int main(int argc, char **argv)
         exit(1);
     }
 
+    if(connect(data.fd, (struct sockaddr *)&(data.address), sizeof(data.address)) < 0)
+    {
+        cerr << "Failed to connect to the server.\n";
+        exit(1);
+    }
+
     /* Variables for the loop. */
     bool end = false;
     string input;
@@ -217,14 +214,14 @@ int main(int argc, char **argv)
         if(tokens.size() == 0) continue;
 
         /* Check the query and perform the respective function. */
-        if(tokens[0] == "CREATE")
-            create(data, tokens);
-        else if(tokens[0] == "UPDATE")
-            update(data, tokens);
-        else if(tokens[0] == "QUERY")
-            query(data, tokens);
-        else if(tokens[0] == "QUIT")
+        if(tokens[0] == "CREATE") create(data, tokens);
+        else if(tokens[0] == "UPDATE") update(data, tokens);
+        else if(tokens[0] == "QUERY") query(data, tokens);
+        else if(tokens[0] == "QUIT") 
+        {
+            quit(data);
             end = true;
+        }
         else 
         {
             cout << "Error! Invalid query entered.\n";
@@ -233,7 +230,7 @@ int main(int argc, char **argv)
     }
 
     /* Close the connection before exiting. */
-    cout << "Exiting program.";
+    cout << "Exiting program.\n";
     close(data.fd);
     return 0;
 }
