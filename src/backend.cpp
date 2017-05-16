@@ -31,10 +31,8 @@ using namespace std;
 /* Structures for the program. */
 struct record
 {
-	int id, locked;
+	int id;
     double balance;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
 };
 struct server_data
 {
@@ -48,33 +46,124 @@ record construct_record(int id, double balance) {
     record data;
     data.id = id;
     data.balance = balance;
-    data.locked = 0;
-    pthread_cond_init(&data.cond, NULL);
-    pthread_mutex_init(&data.lock, NULL);
     return data;
 }
 
 /* Global variables. */
 std::fstream log_file;
 std::vector<record> records;
+int total_accounts = 100;
+const int oneresp = 1;
+const int zeroresp = 0;
+
+/* Get the string value from an int. */
+std::string itos(int value)
+{
+	std::stringstream str;
+	str << value;
+	return str.str();
+}
+
+/* Get the string value for money. */
+std::string mtos(double value)
+{
+	std::ostringstream moneystream;
+	moneystream << fixed << std::setprecision(2) << value;
+	return moneystream.str();
+}
+
+/* Get the string value from an double. */
+std::string dtos(double value)
+{
+	std::stringstream str;
+	str << value;
+	return str.str();
+}
+
+/* Splits a string using a delimeter. */
+template<typename Out>
+void split(const std::string &s, char delim, Out result) {
+    std::stringstream ss;
+    ss.str(s);
+    std::string item;
+    while (std::getline(ss, item, delim)) 
+    {
+        *(result++) = item;
+    }
+}
+
+/* Uses split() to get the vector of string elements. */
+std::vector<std::string> split(const std::string &s, char delim) {
+    std::vector<std::string> elems;
+    split(s, delim, std::back_inserter(elems));
+    return elems;
+}
 
 /* Gets the record with the provided id if it exists. */
-record get_record(int id)
+int get_record(int id)
 {
     for(int i = 0; i < records.size(); i++)
     {
         if(records.at(i).id == id) 
         {
-            return records.at(i);
+            return i;
         }
     }
-    return construct_record(-1, 0.00);
+    return -1;
 }
 
-/* Handle the create request from the coordinator. */
-void create()
+/* Updates the record at the provided index. */
+double update_record(int index, double amount)
 {
+    records.at(index).balance += amount;
+    return records.at(index).balance;
+}
 
+/* Handle the commit request from the coordinator. */
+void commit(int fd, string account, string amount)
+{
+    int acct = atoi(account.c_str());
+    double amt = atof(amount.c_str());
+    double response = -1;
+
+    if(acct < -1)
+    {
+        total_accounts++;
+        response = total_accounts;
+        construct_record(total_accounts, amt);
+    }
+    else
+    {
+        int i = get_record(acct);
+        if(i > -1)
+        {
+            response = update_record(i, amt);
+        }
+    }
+
+    int status = write(fd, &response, sizeof(double));
+    if(status < 0)
+    {
+        cerr << "Failed to write data to the front-end server.\n";
+    }
+}
+
+/* Sends the vote and waits for the result. */
+int send_vote(int response, int fd)
+{
+    int status = write(fd, &response, sizeof(int));
+    if(status < 0)
+    {
+        cerr << "Failed to write data to the front-end server.\n";
+    }
+
+    status = read(fd, &response, sizeof(int));
+    if(status < 0)
+    {
+        cerr << "Failed to read data from the front-end server.\n";
+    }
+
+    return response;
 }
 
 /*  Main method that handles the client program logic. */
@@ -126,7 +215,7 @@ int main(int argc, char **argv)
     char buffer[MAXDATASIZE];
     string buffer_str, client_addr;
     client_addr = inet_ntoa(data.client.sin_addr);
-    int status;
+    int status, response;
 
     /* Keep reading in data. */
     while(1)
@@ -139,11 +228,40 @@ int main(int argc, char **argv)
             continue;
         }
 
-        /* Send the response to the client. */
-        status = write(data.sfd, buffer_str.c_str(), buffer_str.length());
-        if(status < 0)
+        /* Check the buffer and split it into tokens */
+        buffer[status] = '\0';
+		buffer_str = buffer;
+        vector<string> tokens = split(buffer_str, ':');
+
+        /* Check the transaction type. */
+        if(tokens[0] == "C")
         {
-            cerr << "Error writing data to client.\n";
+             response = 1;
+             response = send_vote(response, data.sfd);
+             if(response == 1) commit(data.sfd, "-1", tokens[1]);
+        }
+        else if(tokens[0] == "U")
+        {
+            int i = get_record(atoi(tokens[1].c_str()));
+            if(i > -1) response = 1;
+            else response = 0;
+            response = send_vote(response, data.sfd);
+            if(response == 1) commit(data.sfd, tokens[1], tokens[2]);
+        }
+        else if(tokens[0] == "Q")
+        {
+            double bal = -1.0;
+            int i = get_record(atoi(tokens[1].c_str()));
+            if(i > -1)
+            {
+                bal = records.at(i).balance;
+            }
+            
+            status = write(data.sfd, &bal, sizeof(double));
+            if(status < 0)
+            {
+                cerr << "Failed to write data to the front-end server.\n";
+            }
         }
     }
 
