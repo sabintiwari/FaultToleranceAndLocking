@@ -37,6 +37,8 @@ client localhost 3000
 #### Design
 The overall design of the program is based on the project requirements.
 ***
+###### Two-phase commit and fault tolerance
+The two-phase commit gets the vote from all the backend servers before committing or aborting the transaction. If the front-end process notices that a backend server has crashed, it will add the internal id for that backend server to a blacklist so that no connections are attempted to make to that server. Since it is an all or nothing vote, the front-end server will only count the votes from alive backend processes even if there are even number of servers alive.
 ###### Locking
 The locking for the program is implemented in the `server` code. Each of the threads that are handling the client requests will use `pthread_mutex` to make sure that the critical sections that update the data in the servers are properly synchronized so that there are no race conditions and write issues. When the `server` gets a client request, it will spawn a thread. The `server` has a loop that keeps reading inputs from the `client` and quits after the `client` sends "QUIT" or disconnects. This is where the critical section starts. The mutex will lock the condition variable. The `server` will start a vote among the `backend` processes for the and will wait for the transaction to either commit or abort. Then it will release the lock.
 ###### Inputs for Client
