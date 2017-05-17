@@ -120,24 +120,38 @@ double update_record(int index, double amount)
 }
 
 /* Handle the commit request from the coordinator. */
-void commit(int fd, string account, string amount)
+void commit_abort(int commit, int fd, string account, string amount)
 {
     int acct = atoi(account.c_str());
     double amt = atof(amount.c_str());
     double response = -1;
 
-    if(acct < -1)
+    /* If the vote was commit, perform the transaction. */
+    if(commit == 1)
     {
-        total_accounts++;
-        response = total_accounts;
-        construct_record(total_accounts, amt);
-    }
-    else
-    {
-        int i = get_record(acct);
-        if(i > -1)
+        if(acct < 0)
         {
-            response = update_record(i, amt);
+            /* Create account */
+            total_accounts++;
+            response = total_accounts;
+            records.push_back(construct_record(total_accounts, amt));
+        }
+        else
+        {
+            int i = get_record(acct);
+            if(i > -1)
+            {
+                if(amt < 0)
+                {
+                    /* Query account */
+                    response = records.at(i).balance;
+                }
+                else
+                {
+                    /* Update account */
+                    response = update_record(i, amt);
+                }
+            }
         }
     }
 
@@ -199,7 +213,9 @@ int main(int argc, char **argv)
     }
 
     /* Listen for the incoming requests. */
-    cout << "Back-end server waiting for front-end server requests...\n";
+    int id = getpid();
+    records.push_back(construct_record(-1, -1.00));
+    cout << "Back-end server [ID: " << id << "] is waiting for front-end server requests...\n";
     listen(data.lfd, MAXCONNECTIONS);
 
     /* Accept a client request. */
@@ -234,34 +250,27 @@ int main(int argc, char **argv)
         vector<string> tokens = split(buffer_str, ':');
 
         /* Check the transaction type. */
-        if(tokens[0] == "C")
+        if(tokens[0] == "CREATE")
         {
              response = 1;
              response = send_vote(response, data.sfd);
-             if(response == 1) commit(data.sfd, "-1", tokens[1]);
+             commit_abort(response, data.sfd, "-1", tokens[1]);
         }
-        else if(tokens[0] == "U")
+        else if(tokens[0] == "UPDATE")
         {
             int i = get_record(atoi(tokens[1].c_str()));
             if(i > -1) response = 1;
             else response = 0;
             response = send_vote(response, data.sfd);
-            if(response == 1) commit(data.sfd, tokens[1], tokens[2]);
+            commit_abort(response, data.sfd, tokens[1], tokens[2]);
         }
-        else if(tokens[0] == "Q")
+        else if(tokens[0] == "QUERY")
         {
-            double bal = -1.0;
             int i = get_record(atoi(tokens[1].c_str()));
-            if(i > -1)
-            {
-                bal = records.at(i).balance;
-            }
-            
-            status = write(data.sfd, &bal, sizeof(double));
-            if(status < 0)
-            {
-                cerr << "Failed to write data to the front-end server.\n";
-            }
+            if(i > -1) response = 1;
+            else response = 0;
+            response = send_vote(response, data.sfd);
+            commit_abort(response, data.sfd, tokens[1], "-1");
         }
     }
 

@@ -43,12 +43,6 @@ struct client_data
     struct sockaddr_in address;
     server_data server;
 };
-struct query_data
-{
-    int index, commit;
-    string account, amount, type;
-    server_data server;
-};
 struct lock_data
 {
     int id, locked;
@@ -59,9 +53,7 @@ struct lock_data
 /* Global variables. */
 int used_threads = 0, message_count = 0;
 int sfds[] = {-1, -1, -1};
-int votes[] = {-1, -1, -1};
 int alive[] = {1, 1, 1};
-double responses[] = {-1, -1, -1};
 pthread_t threads[MAXTHREADS];
 lock_data lock;
 
@@ -72,18 +64,6 @@ lock_data construct_lock()
     data.locked = 0;
     pthread_cond_init(&data.cond, NULL);
     pthread_mutex_init(&data.lock, NULL);
-    return data;
-}
-
-/* Creates a query_data object. */
-query_data construct_query(int index, string account, string amount, string type, server_data server)
-{
-    query_data data;
-    data.index = index;
-    data.account = account;
-    data.amount = amount;
-    data.type = type;
-    data.server = server;
     return data;
 }
 
@@ -130,204 +110,134 @@ std::vector<std::string> split(const std::string &s, char delim) {
     return elems;
 }
 
-/* Thread to handle the server backend requests. */
-void *vote_request(void *args)
+/* Method to handle the server backend requests. */
+int vote_request(int fd, int index, string query)
 {
     /* Get the socket data from the args. */
-    query_data query = *((query_data*)args);
-    votes[query.index] = -1;
-    int sfd = sfds[query.index];
-
-    /* Values to store the responses. */
-    char buffer[MAXDATASIZE];
-    std::string buffer_str = query.type + ":" + query.amount;
+    int vote = -1;
 
     /* Send the vote request using the query. */
-    int status = write(sfd, buffer_str.c_str(), buffer_str.size());
+    int status = write(fd, query.c_str(), query.size());
     if(status < 0)
     {
         /* Set the server to failed. */
-        cout << "Failed to write to the backend Server " << query.index << ".\n";
-        alive[query.index] = 0;
+        cout << "Failed to write to the backend Server " << index << ".\n";
+        alive[index] = 0;
     }
     else
     {
         /* If the write was successful, wait for the response. */
-        status = read(sfd, &(votes[query.index]), sizeof(int));
+        int vote;
+        status = read(fd, &vote, sizeof(int));
         if(status < 0)
         {
             /* Set the server to failed. */
-            cout << "Failed to read from the backend Server " << query.index << ".\n";
-            alive[query.index] = 0;
+            cout << "Failed to read from the backend Server " << index << ".\n";
+            alive[index] = 0;
+        }
+        else
+        {
+            return vote;
         }
     }
+
+    return -1;
 }
 
-/* Thread to send the vote result and get the data. */
-void *commit_abort(void *args)
+/* Method to send the vote result and get the data. */
+double commit_abort(int fd, int index, int commit)
 {
-    /* Get the socket data from the args. */
-    query_data query = *((query_data*)args);
-    votes[query.index] = -1;
-    int sfd = sfds[query.index];
-
     /* Send the commit command. */
-    int status = write(sfd, &query.commit, sizeof(int));
+    int status = write(fd, &commit, sizeof(int));
     if(status < 0)
     {
          /* Set the server to failed. */
-        cout << "Failed to write to the backend Server " << query.index << ".\n";
-        alive[query.index] = 0;
+        cout << "Failed to write to the backend Server " << index << ".\n";
+        alive[index] = 0;
     }
     else
     {
         /* If the write was successful, wait for the response. */
-        status = read(sfd, &(responses[query.index]), sizeof(double));
+        double response;
+        status = read(fd, &response, sizeof(double));
         if(status < 0)
         {
             /* Set the server to failed. */
-            cout << "Failed to read from the backend Server " << query.index << ".\n";
-            alive[query.index] = 0;
+            cout << "Failed to read from the backend Server " << index << ".\n";
+            alive[index] = 0;
+        }
+        else
+        {
+            return response;
         }
     }
+    return -1;
 }
 
 /* Method that performs the two phase commit. */
-bool two_phase(client_data query, string account, string amount, string type)
+double two_phase(string query)
 {
     /* Start the threads for the backend servers. */
-    pthread_t one, two, three;
-    query_data query1, query2, query3;
-
-    /* Check if the first server is alive and create the thread. */
-    if(alive[0] == 1) 
-    {
-        query1 = construct_query(0, account, amount, type, query.server);
-        pthread_create(&one, NULL, vote_request, &query1);
-    }
-    
-    /* Check if the second server is alive and create the thread. */
-    if(alive[1] == 1)
-    {
-        query2 = construct_query(1, "-1", amount, type, query.server);
-        pthread_create(&one, NULL, vote_request, &query2);
-    }
-
-    /* Check if the third server is alive and create the thread. */
-    if(alive[2] == 1)
-    {
-        query3 = construct_query(2, "-1", amount, type, query.server);
-        pthread_create(&one, NULL, vote_request, &query3);
-    }
-
-    /* Wait for the threads to join after sending the vote request. */
-    if(alive[0] == 1) pthread_join(one, NULL);
-    if(alive[1] == 1) pthread_join(two, NULL);
-    if(alive[2] == 1) pthread_join(three, NULL);
-
-    /* Count the votes. */
-    query1.commit = query2.commit = query3.commit = 1;
+    int commit = 1;
     for(int i = 0; i < 3; i++)
     {
-        if(alive[i] == 1 && votes[i] == 0)
+        if(alive[i] == 1)
         {
-            query1.commit = query2.commit = query3.commit = 0;
-            break;
+            int vote = vote_request(sfds[i], i, query);
+            if(vote < 1) 
+            {
+                commit = 0;
+            }  
         }
     }
 
-    /* Send the commit request using threads if votes was for commit. */
-    if(query1.commit == 1 && query2.commit == 1 && query3.commit == 1)
+    /* Send the commit or abort request using threads if votes was for commit. */
+    double response = -1;
+    for(int i = 0; i < 3; i++)
     {
-        if(alive[0] == 1) pthread_create(&one, NULL, commit_abort, &query1);
-        if(alive[1] == 1) pthread_create(&two, NULL, commit_abort, &query2);
-        if(alive[2] == 1) pthread_create(&three, NULL, commit_abort, &query3);
-
-        if(alive[0] == 1) pthread_join(one, NULL);
-        if(alive[1] == 1) pthread_join(two, NULL);
-        if(alive[2] == 1) pthread_join(three, NULL);
-
-        return true;
+        if(alive[i] == 1)
+        {
+            response = commit_abort(sfds[i], i, commit);
+        }
     }
 
-    return false;
+    return response;
 }
 
 /* Performs the function of creating an account. */
-string create(client_data data, vector<string> tokens)
+string create(string query)
 {
     /* Perform the two phase commit and send response. */
-    if(two_phase(data, "-1", tokens[1], "C")) 
+    int response = two_phase(query);
+    if(response > -1) 
     {
-        for(int i = 0; i < 3; i++)
-        {
-            if(alive[i] == 1)
-            {
-                return "OK " + itos(responses[i]);
-            }
-        }  
+        return "OK " + itos(response);  
     }
     return "ERR Creating account";
 }
 
 /* Performs the function of updating an account. */
-string update(client_data data, vector<string> tokens)
+string update(string query)
 {
     /* Perform the two phase commit and send response. */
-    if(two_phase(data, tokens[1], tokens[2], "U")) 
+    double response = two_phase(query);
+    if(response > -1) 
     {
-        for(int i = 0; i < 3; i++)
-        {
-            if(alive[i] == 1)
-            {
-                return "OK " + mtos(responses[i]);
-            }
-        }
+        return "OK " + mtos(response);  
     }
-    return "ERR Creating account";
+    return "ERR Account to update does not exist";
 }
 
 /* Performs the function of querying an account. */
-string query(client_data data, vector<string> tokens)
+string query(string query)
 {
-    for(int i = 0; i < 3; i++)
+    /* Perform the two phase commit and send response. */
+    double response = two_phase(query);
+    if(response > -1) 
     {
-        if(alive[i] == 1)
-        {
-            /* Values to store the responses. */
-            char buffer[MAXDATASIZE];
-            string buffer_str =  "Q:" + tokens[1];
-
-            /* Send the vote request using the query. */
-            int status = write(sfds[i], buffer_str.c_str(), buffer_str.size());
-            if(status < 0)
-            {
-                /* Set the server to failed. */
-                cout << "Failed to write to the backend Server " << i << ".\n";
-                alive[i] = 0;
-            }
-            else
-            {
-                /* If the write was successful, wait for the response. */
-                status = read(sfds[i], &buffer, sizeof(int));
-                if(status < 0)
-                {
-                    /* Set the server to failed. */
-                    cout << "Failed to read from the backend Server " << i << ".\n";
-                    alive[i] = 0;
-                }
-                else
-                {
-                    /* Return the value if no error. */
-                    buffer[status] = '\0';
-		            buffer_str = buffer;
-                    return "OK " + buffer_str;
-                }
-            }
-        }
+        return "OK " + mtos(response);  
     }
-
-	return "ERR Querying account";
+    return "ERR Account to quert does not exist";
 }
 
 /* Thread to handle the client request. */
@@ -358,6 +268,7 @@ void *client_request(void *args)
         buffer[status] = '\0';
         buffer_str = buffer;
         cout << "Received data from the client: [" << buffer_str << "]\n";
+        if(buffer_str == "") break;
 		message_count++;
 
         /* Split the token from the client and perform the transaction. */
@@ -374,11 +285,11 @@ void *client_request(void *args)
 
         lock.locked = 1;
         if(tokens[0] == "CREATE") 
-			buffer_str = create(data, tokens);
+			buffer_str = create(buffer_str);
         else if(tokens[0] == "UPDATE") 
-			buffer_str = update(data, tokens);
+			buffer_str = update(buffer_str);
         else if(tokens[0] == "QUERY") 
-			buffer_str = query(data, tokens);
+			buffer_str = query(buffer_str);
         else
 		{
 			buffer_str = "OK";
@@ -389,8 +300,9 @@ void *client_request(void *args)
         lock.locked = 0;
         pthread_cond_signal(&(lock.cond));
         pthread_mutex_unlock(&(lock.lock));
-            
+
         /* Send the response to the client. */
+        buffer_str = buffer_str + "\r\n";
         status = write(data.fd, buffer_str.c_str(), buffer_str.length());
         if(status < 0)
         {

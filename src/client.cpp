@@ -112,7 +112,7 @@ void send(socket_data data, string message)
     }
 
     /* Show the message from the server. */
-    cout << buffer << "\n";
+    cout << buffer;
 }
 
 /* Handles the create functionality. */
