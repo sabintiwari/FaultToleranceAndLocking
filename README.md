@@ -32,7 +32,7 @@ The client must be started using the address and port of the front-end server (i
 ```bash
 client localhost 3000
 ```
-###### Backend (parameters: `port`)
+###### Backend (parameters: `port`) and Server (parameters: `server_port`, `backend_port_1`, `backend_port_2`, `backend_port_3`)
 If running each server process on separate terminals, make sure to start the backend processes first.
 ```bash
 backend 3001
