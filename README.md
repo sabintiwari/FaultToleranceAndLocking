@@ -1,4 +1,4 @@
-## Sabin Raj Tiwari | CMSC 621 Project 3
+## Sabin Raj Tiwari
 
 ***
 #### Make
